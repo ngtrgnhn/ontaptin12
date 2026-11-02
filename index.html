@@ -27,6 +27,48 @@
 .source-card{margin-top:19px}
 @media(max-width:560px){.quiz-toolbar{align-items:stretch;gap:8px}.mode-tabs{flex:1 0 100%;justify-content:space-between}.mode-tab{flex:1}.reset-button{width:100%;min-height:38px}.utility-panel{padding-top:12px}.workspace{padding-top:17px}}
 
+
+/* OFFLINE FONT FIX — all typography uses installed fonts, no CDN/font files. */
+:root {
+  --font-vi: "Segoe UI", "Noto Sans", "DejaVu Sans", Tahoma, Arial, sans-serif;
+  --font-vi-heading: Cambria, "Times New Roman", "Noto Serif", "DejaVu Serif", serif;
+  font-synthesis: weight style;
+}
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body, button, input, select, textarea {
+  font-family: var(--font-vi);
+  text-rendering: optimizeLegibility;
+}
+/* Use a consistent Unicode-capable font for Vietnamese questions and options. */
+.question-prompt, .choice-text, .tf-table td, .feedback p,
+.question-foot-desc, .source-warning, .source-tag, .source-card p,
+.lesson-detail strong, .lesson-detail small, .empty-state p,
+.notebook-kicker, .tip-card p, .info-dialog p,
+.brand-kicker, .brand-caption, .side-heading, .crumb, .topline-right,
+.upperline, .question-kicker, .question-topline, .answer-title,
+.mode-tabs, .mode-tab, .reset-button, .primary-btn, .secondary-btn,
+.search-box input, .select-wrap select, .count-tracker, .stats-grid small,
+.table-note, .footer, .text-button {
+  font-family: var(--font-vi);
+}
+.brand-text strong, .section-line h2, .notebook-card h3, .ring-center b,
+.stats-grid b, .empty-state h3, .source-card strong, .info-dialog h2 {
+  font-family: var(--font-vi-heading);
+}
+/* Improved legibility: don't crush Vietnamese diacritics into small line boxes. */
+.question-prompt { line-height: 1.65; font-size: 18px; font-weight: 550; }
+.choice-text { font-size: 14px; line-height: 1.7; }
+.tf-table td { line-height: 1.7; }
+.lesson-detail strong { line-height: 1.55; }
+.sidebar .brand-caption { font-size: 9px; line-height: 1.55; }
+.sidebar .brand-kicker, .side-heading, .upperline, .answer-title,
+.question-topline, .notebook-kicker { line-height: 1.5; }
+.brand-kicker, .side-heading, .crumb, .upperline, .answer-title,
+.question-kicker, .question-topline { letter-spacing: .07em; }
+@media(max-width:560px) {
+  .question-prompt { font-size: 16px; line-height: 1.7; }
+  .choice-text { font-size: 13px; }
+}
 </style>
 
 
@@ -55,7 +97,7 @@
     <main class="main-content" id="mainContent">
       <header class="topline">
         <div class="crumb"><span class="crumb-icon">✣</span> THƯ VIỆN ÔN TẬP <span class="slash">/</span> TIN HỌC 12</div>
-        <div class="topline-right"><span class="red-dot"></span> HOẠT ĐỘNG KHÔNG CẦN MẠNG <span class="top-roman">A.D. MDL</span></div>
+        <div class="topline-right"><span class="red-dot"></span> <span id="offlineStatus" aria-live="polite">ĐANG KIỂM TRA OFFLINE</span> <span class="top-roman">A.D. MDL</span></div>
       </header>
 
       <section class="utility-panel" aria-label="Bộ lọc câu hỏi">
@@ -3779,6 +3821,27 @@ window.QUIZ_IMAGES = {"hinh-59.png": "data:image/png;base64,iVBORw0KGgoAAAANSUhE
   });
   el('allCount').textContent=all.length;
   render();
+})();
+</script>
+<script>
+/* Offline install: single HTML works directly under file://. Hosted builds use sw.js. */
+(function () {
+  const label = document.getElementById('offlineStatus');
+  function setStatus(message) { if (label) label.textContent = message; }
+  const proto = window.location.protocol;
+  if (proto === 'file:' || proto === 'about:' || proto === 'data:') {
+    setStatus('ĐỘC LẬP · KHÔNG CẦN WI-FI');
+    return;
+  }
+  if (!('serviceWorker' in navigator) || !window.isSecureContext) {
+    setStatus('TẢI FILE HTML ĐỂ DÙNG OFFLINE');
+    return;
+  }
+  // sw.js is shipped in the ZIP package for hosting on HTTPS/localhost.
+  navigator.serviceWorker.register('./sw.js', {scope:'./'})
+    .then(() => navigator.serviceWorker.ready)
+    .then(() => { setStatus('ĐÃ SẴN SÀNG DÙNG OFFLINE'); })
+    .catch(() => { setStatus('TẢI FILE HTML ĐỂ DÙNG OFFLINE'); });
 })();
 </script>
 </body>
