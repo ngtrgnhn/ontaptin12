@@ -81,9 +81,7 @@ body, button, input, select, textarea {
 .offline-indicator[data-state="ready"]{color:#426349}.offline-indicator[data-state="ready"] .offline-led{background:#50784e}
 .offline-indicator[data-state="file"]{color:#426349}.offline-indicator[data-state="file"] .offline-led{background:#50784e}
 .offline-indicator[data-state="error"]{color:#9d3939}.offline-indicator[data-state="error"] .offline-led{background:#b74141}
-.offline-save{font:700 10px Arial,'Segoe UI',Tahoma,sans-serif;background:#fff8eb;border:1px solid #ad8f6b;padding:5px 7px;color:#762f35}
-.offline-save:hover{background:#eee1cc}
-.offline-save[hidden]{display:none}
+
 @media(max-width:980px){.offline-indicator{order:3;flex:1 0 100%;justify-content:flex-start}}
 @media(max-width:560px){.offline-indicator{order:0;flex:0 1 auto;justify-content:flex-start;font-size:9px;min-height:34px}.reset-button{order:1}.mode-tabs{order:-1}}
 </style>
@@ -127,16 +125,9 @@ body, button, input, select, textarea {
           <div class="offline-indicator" id="offlineIndicator" data-state="waiting" role="status" aria-live="polite">
             <span class="offline-led" aria-hidden="true"></span>
             <span id="offlineStatusMobile">ĐANG THIẾT LẬP OFFLINE...</span>
-            <button id="saveOfflineBtn" type="button" class="offline-save">↓ LƯU ĐỂ DÙNG OFFLINE</button>
           </div>
           <button type="button" id="resetProgress" class="reset-button" title="Xóa toàn bộ câu đã làm, trở lại câu đầu tiên">↺ &nbsp; LÀM LẠI TỪ ĐẦU</button>
         </div>
-        <details id="iphoneOfflineGuide" class="offline-setup" hidden>
-          <summary>Hướng dẫn lưu offline trên iPhone</summary>
-          <p id="offlineGuideContext" class="offline-context"></p>
-          <ol id="offlineGuideSteps"></ol>
-          <p>Khi có dòng <strong>ĐÃ LƯU TRONG ỨNG DỤNG</strong>, bật Chế độ máy bay, đóng ứng dụng rồi mở lại để thử. Đừng xóa web app hoặc dữ liệu Safari, vì hệ thống có thể xóa bộ nhớ đệm.</p>
-        </details>
         <div class="filter-row">
           <label class="search-box"><span class="search-icon">⌕</span><input id="searchInput" type="search" placeholder="Tìm nội dung câu hỏi…" autocomplete="off" /><kbd>/</kbd></label>
           <label class="select-wrap mobile-lesson"><span class="sr-only">Chọn bài học</span><select id="mobileLesson"></select></label>
@@ -3852,154 +3843,110 @@ window.QUIZ_IMAGES = {"hinh-59.png": "data:image/png;base64,iVBORw0KGgoAAAANSUhE
 })();
 </script>
 <script>
-/* iPhone/Safari offline support – persistent app shell verification in EACH storage context.
-   This script is deliberately self-contained; quiz features never need network. */
+/* Tự động lưu ứng dụng offline cho mọi thiết bị, không cần thao tác thủ công.
+   CSS, JS, đề trắc nghiệm và hình ảnh đã được nhúng trong HTML. */
 (function () {
   'use strict';
-  const KEY = 'trongnhan-tin12-ios-v6'; // Must equal the worker cache name.
+  const CACHE = 'trongnhan-tin12-auto-v7'; // Cùng phiên bản với sw.js.
   const HOME = new URL('./index.html', location.href).href;
   const ROOT = new URL('./', location.href).href;
-  const ASSETS = ['./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
-  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  const standalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
-  const byId = id => document.getElementById(id);
-  const desktop = byId('offlineStatus');
-  const compact = byId('offlineStatusMobile');
-  const badge = byId('offlineIndicator');
-  const saveBtn = byId('saveOfflineBtn');
-  const guide = byId('iphoneOfflineGuide');
-  const guideContext = byId('offlineGuideContext');
-  const steps = byId('offlineGuideSteps');
-  let activeSave = false;
+  const labelTop = document.getElementById('offlineStatus');
+  const labelMain = document.getElementById('offlineStatusMobile');
+  const badge = document.getElementById('offlineIndicator');
+  let busy = false;
+  let retryHandle;
 
-  function status(text, level, detail) {
-    if (desktop) desktop.textContent = text;
-    if (compact) compact.textContent = text;
-    if (badge) { badge.dataset.state = level; badge.title = detail || text; }
-    // Explicit save is always available, including after successful automatic caching.
-    if (saveBtn) { saveBtn.disabled = activeSave; saveBtn.textContent = activeSave ? 'ĐANG LƯU...' : '↓ LƯU OFFLINE'; }
-  }
-  function renderGuide() {
-    if (!isIOS || !guide) return;
-    guide.hidden = false;
-    guideContext.textContent = standalone() ?
-      'Bạn đang ở ứng dụng trên Màn hình chính. Lưu offline ngay trong ứng dụng này.' :
-      'Bạn đang ở Safari/trình duyệt iPhone. Cache trong Safari KHÔNG chuyển sang ứng dụng Màn hình chính.';
-    const items = standalone() ? [
-      'Giữ Wi-Fi hoặc 4G bật và bấm nút LƯU OFFLINE phía trên.',
-      'Chờ thông báo ĐÃ LƯU TRONG ỨNG DỤNG.',
-      'Bật Chế độ máy bay, đóng ứng dụng rồi mở lại bằng biểu tượng Màn hình chính.'
-    ] : [
-      'Trong Safari khi còn mạng, bấm Chia sẻ → Thêm vào Màn hình chính.',
-      'Bật “Mở dưới dạng ứng dụng” (Open as Web App), rồi chọn Thêm.',
-      'Mở biểu tượng ứng dụng từ Màn hình chính KHI CÒN MẠNG.',
-      'Bấm LƯU OFFLINE TRONG ỨNG DỤNG, đợi thông báo thành công rồi mới bật Chế độ máy bay.'
-    ];
-    steps.replaceChildren(...items.map(item => {
-      const li = document.createElement('li'); li.textContent = item; return li;
-    }));
-    if (!standalone()) guide.open = true;
-  }
-  function withTimeout(promise, ms, label) {
-    return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(label + ' quá thời gian')), ms))]);
-  }
-  async function getRegistration() {
-    if (!('serviceWorker' in navigator) || !window.isSecureContext) {
-      throw new Error('Cần website HTTPS và trình duyệt hỗ trợ Service Worker');
+  function display(text, state, detail) {
+    if (labelTop) labelTop.textContent = text;
+    if (labelMain) labelMain.textContent = text;
+    if (badge) {
+      badge.dataset.state = state;
+      badge.title = detail || text;
     }
-    const reg = await withTimeout(navigator.serviceWorker.register('./sw.js', {scope: './', updateViaCache:'none'}), 15000, 'Đăng ký Service Worker');
-    await withTimeout(navigator.serviceWorker.ready, 18000, 'Kích hoạt Service Worker');
-    if (!reg.active) throw new Error('Service Worker chưa kích hoạt');
-    return reg;
   }
-  async function verifyCache() {
-    if (!('caches' in window)) throw new Error('Trình duyệt không hỗ trợ bộ nhớ Cache Storage');
-    const cache = await caches.open(KEY);
-    const [a,b] = await Promise.all([cache.match(HOME),cache.match(ROOT)]);
-    if (!(a && a.ok && b && b.ok)) return false;
-    const body = await a.clone().text();
-    return body.includes('window.QUIZ_DATA') && body.includes('id="questionRoot"');
+  function limit(promise, time, name) {
+    return Promise.race([promise, new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(name + ' quá thời gian')), time))]);
   }
-  async function savePageNow() {
-    // This is called directly by the page after a user taps Save. It works even
-    // if the worker's MessageChannel is unreliable or suspended on iOS.
-    const response = await withTimeout(fetch(HOME, {cache:'no-store', credentials:'same-origin'}), 25000, 'Tải trang câu hỏi');
-    if (!response.ok || !((response.headers.get('content-type')||'').includes('text/html')))
-      throw new Error('Không tải được HTML thật của website (HTTP '+response.status+')');
-    const html = await response.clone().text();
-    if (!html.includes('window.QUIZ_DATA') || !html.includes('id="questionRoot"'))
-      throw new Error('Vercel chưa phục vụ đúng file index.html của bộ trắc nghiệm');
-    const cache = await caches.open(KEY);
-    await cache.put(HOME, response.clone());
-    await cache.put(ROOT, response.clone());
-    // Optional assets; quiz itself is fully embedded in the HTML document.
-    await Promise.all(ASSETS.map(async file => {
-      try {
-        const url = new URL(file, ROOT).href;
-        const resource = await fetch(url, {cache:'no-store',credentials:'same-origin'});
-        if (resource.ok) await cache.put(url, resource);
-      } catch (_) { /* icon/manifest don't prevent quiz offline */ }
-    }));
-    if (!(await verifyCache())) throw new Error('Kiểm tra cache thất bại; không đánh dấu đã lưu');
+  async function checkCache() {
+    if (!('caches' in window)) return false;
+    const cache = await caches.open(CACHE);
+    const [main, root] = await Promise.all([cache.match(HOME), cache.match(ROOT)]);
+    if (!(main?.ok && root?.ok)) return false;
+    const markup = await main.clone().text();
+    return markup.includes('window.QUIZ_DATA') && markup.includes('id="questionRoot"');
   }
-  function readyMessage() {
-    if (!navigator.onLine) return 'ĐANG OFFLINE · CÓ DỮ LIỆU ĐÃ LƯU';
-    if (isIOS && !standalone()) return 'ĐÃ LƯU TRONG SAFARI · HÃY LƯU LẠI TRONG APP';
-    if (isIOS) return 'ĐÃ LƯU TRONG ỨNG DỤNG · THỬ CHẾ ĐỘ MÁY BAY';
-    return 'ĐÃ LƯU WEBSITE · CÓ THỂ THỬ OFFLINE';
+  async function cacheApp() {
+    // Đường dự phòng nếu SW đã cài nhưng cache chưa được tạo (đặc biệt khi mới mở lần đầu).
+    const page = await limit(fetch(HOME, {cache:'no-store', credentials:'same-origin'}),
+      25000, 'Tải website');
+    if (!page.ok || !(page.headers.get('content-type') || '').includes('text/html'))
+      throw new Error('Máy chủ chưa trả về website HTML (HTTP ' + page.status + ')');
+    const body = await page.clone().text();
+    if (!body.includes('window.QUIZ_DATA') || !body.includes('id="questionRoot"'))
+      throw new Error('Địa chỉ chưa cung cấp đúng website trắc nghiệm');
+    const cache = await caches.open(CACHE);
+    await cache.put(HOME, page.clone());
+    await cache.put(ROOT, page.clone());
   }
-  async function ensureOffline(manual) {
-    if (activeSave) return;
-    activeSave = true;
-    status(manual ? 'ĐANG LƯU DỮ LIỆU...' : 'ĐANG KIỂM TRA OFFLINE...', 'working');
+  async function setUp() {
+    if (busy) return;
+    if (retryHandle) { clearTimeout(retryHandle); retryHandle = null; }
+    if (location.protocol === 'file:') {
+      display('FILE HTML · DÙNG OFFLINE', 'file');
+      return;
+    }
+    if (!('serviceWorker' in navigator) || !window.isSecureContext || !('caches' in window)) {
+      display('TRÌNH DUYỆT CHƯA HỖ TRỢ OFFLINE', 'error',
+        'Cần HTTPS, Service Worker và Cache Storage');
+      return;
+    }
+    busy = true;
+    display('ĐANG CHUẨN BỊ OFFLINE...', 'working');
     try {
-      if (location.protocol === 'file:') {
-        status('FILE HTML · CHẠY KHÔNG CẦN MẠNG', 'file');
+      // Khi đã tải trước đó, không yêu cầu tải lại sw.js lúc đang mất mạng.
+      // Safari và các trình duyệt khác có thể thất bại nếu register() chạy offline.
+      const existing = await navigator.serviceWorker.getRegistration('./');
+      if (existing?.active && await checkCache()) {
+        display(navigator.onLine ? 'ĐÃ SẴN SÀNG OFFLINE' : 'ĐANG DÙNG OFFLINE', 'ready');
+        if (navigator.onLine) existing.update().catch(() => {});
         return;
       }
-      // Cannot repair an uninstalled PWA once disconnected from its origin.
-      if (!navigator.onLine && !(await verifyCache())) {
-        throw new Error('Chưa có dữ liệu đã lưu. Kết nối mạng để lưu lần đầu.');
+      if (!navigator.onLine) throw new Error('Cần kết nối lần đầu để lưu website');
+      // Service Worker chủ động lưu bản đầy đủ ngay khi install; không cần bấm nút.
+      const reg = await limit(navigator.serviceWorker.register('./sw.js',
+        {scope:'./', updateViaCache:'none'}), 15000, 'Đăng ký Service Worker');
+      await limit(navigator.serviceWorker.ready, 24000, 'Khởi động Service Worker');
+      if (!reg.active) throw new Error('Service Worker chưa hoạt động');
+      if (!(await checkCache())) {
+        // Không tải lại qua mạng nếu cache đã đầy đủ.
+        await cacheApp();
       }
-      if (!navigator.onLine) {
-        const reg = await navigator.serviceWorker.getRegistration('./');
-        if (!reg?.active || !(await verifyCache())) throw new Error('Chưa sẵn sàng. Hãy kết nối mạng và lưu lại.');
-      } else {
-        const reg = await getRegistration();
-        if (manual || !(await verifyCache())) {
-          if (!navigator.onLine) throw new Error('Cần Internet để tải dữ liệu lần đầu');
-          await savePageNow();
-        }
-        if (!reg.active || !(await verifyCache())) throw new Error('Service Worker hoặc bộ nhớ offline chưa sẵn sàng');
-      }
-      status(readyMessage(), 'ready');
+      if (!(await checkCache())) throw new Error('Không xác minh được dữ liệu offline');
+      display(navigator.onLine ? 'ĐÃ SẴN SÀNG OFFLINE' : 'ĐANG DÙNG OFFLINE', 'ready');
+      // Kiểm tra cập nhật mới trên các lượt truy cập tiếp theo, không chặn giao diện.
+      if (navigator.onLine) reg.update().catch(() => {});
     } catch (error) {
-      const message = error?.message || String(error);
-      console.warn('iOS Offline:', message);
-      status(navigator.onLine ? 'CHƯA LƯU ĐƯỢC · BẤM THỬ LẠI' : 'CHƯA SẴN SÀNG OFFLINE', 'error', message);
-      if (guide) { guide.hidden = false; guide.open = true; }
-      if (guideContext) guideContext.textContent = 'Lưu offline chưa thành công: ' + message;
+      const reason = error?.message || String(error);
+      console.warn('Tự lưu offline:', reason);
+      // Cả trang vẫn tiếp tục dùng được online; chỉ báo trạng thái sau kiểm tra.
+      display(navigator.onLine ? 'CHƯA LƯU ĐƯỢC OFFLINE' : 'CẦN KẾT NỐI ĐỂ LƯU', 'error', reason);
+      if (navigator.onLine && !document.hidden) {
+        retryHandle = setTimeout(setUp, 10000);
+      }
     } finally {
-      activeSave = false;
-      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '↓ LƯU OFFLINE'; }
+      busy = false;
     }
   }
-  if (isIOS) renderGuide();
-  if (saveBtn) saveBtn.addEventListener('click', () => ensureOffline(true));
-  if (location.protocol === 'file:') {
-    status('FILE HTML · CHẠY KHÔNG CẦN MẠNG', 'file');
-    if (saveBtn) saveBtn.hidden = true;
-  } else {
-    ensureOffline(false);
-    window.addEventListener('online', () => ensureOffline(false));
-    window.addEventListener('offline', () => {
-      if (badge?.dataset.state === 'ready') status(readyMessage(), 'ready');
-    });
-    document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && !activeSave && badge?.dataset.state !== 'ready') ensureOffline(false);
-    });
-  }
+  window.addEventListener('online', setUp);
+  window.addEventListener('offline', () => {
+    if (badge?.dataset.state === 'ready') display('ĐANG DÙNG OFFLINE', 'ready');
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && badge?.dataset.state !== 'ready') setUp();
+  });
+  // Cấu hình hoàn toàn tự động trên cả Safari, Chrome và web app Màn hình chính.
+  setUp();
 })();
 </script>
 </body>
